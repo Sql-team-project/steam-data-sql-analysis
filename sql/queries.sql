@@ -1,0 +1,357 @@
+-- THE STEAM ANALYTICS QUERIES
+
+-- INSTRUCTIONS:
+-- Each block of code below is usable separately. 
+-- To test a query, just uncomment the block and run it. 
+
+
+-- 1. The "Tag Synergy & Revenue" Matrix
+-- Which combination of tags produces the highest ratio of 
+-- positive reviews and average playtime?
+
+-- WITH GameStats AS (
+--     SELECT 
+--         game_id, 
+--         AVG(hours_played) as avg_hours,
+--         AVG(
+--             CASE WHEN sentiment = 'Positive' 
+--             THEN 1.0 ELSE 0.0 END
+--         ) as pos_ratio
+--     FROM fact_recommendations 
+--     GROUP BY game_id
+-- ),
+-- TagPairs AS (
+--     SELECT 
+--         b1.game_id, 
+--         t1.tag_name AS tag1, 
+--         t2.tag_name AS tag2
+--     FROM bridge_game_tags b1
+--     JOIN bridge_game_tags b2 
+--         ON b1.game_id = b2.game_id 
+--         AND b1.tag_id < b2.tag_id
+--     JOIN dim_tags t1 
+--         ON b1.tag_id = t1.tag_id
+--     JOIN dim_tags t2 
+--         ON b2.tag_id = t2.tag_id
+-- )
+-- SELECT TOP 15 
+--     tp.tag1, 
+--     tp.tag2, 
+--     COUNT(tp.game_id) as games_count, 
+--     ROUND(AVG(gs.avg_hours), 2) as pair_avg_hours, 
+--     ROUND(AVG(gs.pos_ratio), 4) as pair_pos_ratio
+-- FROM TagPairs tp 
+-- JOIN GameStats gs 
+--     ON tp.game_id = gs.game_id
+-- GROUP BY 
+--     tp.tag1, 
+--     tp.tag2 
+-- HAVING COUNT(tp.game_id) > 20 
+-- ORDER BY pair_avg_hours DESC;
+
+
+-- 2. The "Loyalty Tier" Breakdown 
+-- If we group users into 4 quartiles based on their total 
+-- library size, how does engagement differ?
+
+-- WITH UserTiers AS (
+--     SELECT 
+--         user_id, 
+--         products,
+--         NTILE(4) OVER (
+--             ORDER BY products ASC
+--         ) as tier_rank
+--     FROM dim_users
+-- )
+-- SELECT 
+--     t.tier_rank, 
+--     COUNT(DISTINCT r.user_id) as total_users, 
+--     ROUND(AVG(r.hours_played), 2) as avg_hours, 
+--     ROUND(
+--         AVG(
+--             CASE WHEN r.sentiment = 'Positive' 
+--             THEN 1.0 ELSE 0.0 END
+--         ), 
+--     4) as pos_ratio
+-- FROM fact_recommendations r 
+-- JOIN UserTiers t 
+--     ON r.user_id = t.user_id
+-- GROUP BY t.tier_rank 
+-- ORDER BY t.tier_rank ASC;
+
+
+-- 3. The "Review Bomber" Detection 
+-- Identify users with 5+ reviews where >70% are negative 
+-- and average playtime is < 2 hours.
+
+-- WITH UserStats AS (
+--     SELECT 
+--         user_id, 
+--         COUNT(*) as total_reviews, 
+--         SUM(
+--             CASE WHEN sentiment = 'Negative' 
+--             THEN 1 ELSE 0 END
+--         ) as negative_reviews,
+--         AVG(
+--             CASE WHEN sentiment = 'Negative' 
+--             THEN hours_played ELSE NULL END
+--         ) as avg_neg_hours
+--     FROM fact_recommendations 
+--     GROUP BY user_id
+-- )
+-- SELECT TOP 50 
+--     u.user_id, 
+--     u.total_reviews, 
+--     u.negative_reviews, 
+--     ROUND(u.avg_neg_hours, 2) as avg_neg_hours
+-- FROM UserStats u 
+-- WHERE u.total_reviews > 5 
+--   AND (u.negative_reviews * 1.0 / u.total_reviews) > 0.7 
+--   AND u.avg_neg_hours < 2.0
+-- ORDER BY u.total_reviews DESC;
+
+
+-- 4. The "Platform Tax & Deck Boost"
+-- Do multi-platform games charge a premium compared to 
+-- Windows-only games released in the same year?
+
+-- WITH PlatformData AS (
+--     SELECT 
+--         YEAR(date_release) as release_year,
+--         CASE 
+--             WHEN win = 1 AND mac = 1 AND linux = 1 
+--             THEN 'Multi-Platform' 
+--             ELSE 'Windows Only' 
+--         END as platform_type,
+--         price_final
+--     FROM dim_games 
+--     WHERE YEAR(date_release) >= 2010
+-- )
+-- SELECT 
+--     release_year, 
+--     platform_type, 
+--     ROUND(AVG(price_final), 2) as avg_price, 
+--     COUNT(*) as games_released,
+--     RANK() OVER (
+--         PARTITION BY release_year 
+--         ORDER BY AVG(price_final) DESC
+--     ) as price_rank
+-- FROM PlatformData 
+-- GROUP BY 
+--     release_year, 
+--     platform_type 
+-- ORDER BY 
+--     release_year DESC, 
+--     price_rank;
+
+
+-- 5. The "Hype vs. Longevity" Curve
+-- How does the positive ratio change from Launch Month vs 
+-- Long Term (1+ years later)?
+
+-- WITH LaunchReviews AS (
+--     SELECT 
+--         r.game_id, 
+--         COUNT(*) as launch_count, 
+--         SUM(
+--             CASE WHEN r.sentiment = 'Positive' 
+--             THEN 1.0 ELSE 0.0 END
+--         ) as launch_pos
+--     FROM fact_recommendations r 
+--     JOIN dim_games g 
+--         ON r.game_id = g.game_id
+--     WHERE DATEDIFF(day, g.date_release, r.review_date) <= 30 
+--     GROUP BY r.game_id
+-- ),
+-- LongTermReviews AS (
+--     SELECT 
+--         r.game_id, 
+--         COUNT(*) as long_count, 
+--         SUM(
+--             CASE WHEN r.sentiment = 'Positive' 
+--             THEN 1.0 ELSE 0.0 END
+--         ) as long_pos
+--     FROM fact_recommendations r 
+--     JOIN dim_games g 
+--         ON r.game_id = g.game_id
+--     WHERE DATEDIFF(day, g.date_release, r.review_date) > 365 
+--     GROUP BY r.game_id
+-- )
+-- SELECT TOP 25 
+--     g.title, 
+--     l.launch_count, 
+--     lt.long_count,
+--     ROUND(l.launch_pos / l.launch_count, 4) as launch_pos_ratio,
+--     ROUND(lt.long_pos / lt.long_count, 4) as long_pos_ratio
+-- FROM dim_games g 
+-- JOIN LaunchReviews l 
+--     ON g.game_id = l.game_id 
+-- JOIN LongTermReviews lt 
+--     ON g.game_id = lt.game_id
+-- WHERE l.launch_count > 100 
+--   AND lt.long_count > 100 
+-- ORDER BY l.launch_count DESC;
+
+
+-- 6. The "Meme Game" Detector 
+-- Which tags generate reviews with the highest ratio of 
+-- "Funny" votes compared to "Helpful"?
+
+-- SELECT TOP 20 
+--     t.tag_name, 
+--     SUM(r.funny) as total_funny, 
+--     SUM(r.helpful) as total_helpful,
+--     ROUND(SUM(r.funny) * 1.0 / SUM(r.helpful), 4) as meme_ratio
+-- FROM fact_recommendations r 
+-- JOIN bridge_game_tags b 
+--     ON r.game_id = b.game_id 
+-- JOIN dim_tags t 
+--     ON b.tag_id = t.tag_id
+-- GROUP BY t.tag_name 
+-- HAVING SUM(r.helpful) > 5000 
+-- ORDER BY meme_ratio DESC;
+
+
+-- 7. The "Discount Diver" Behavior
+-- Do users who only review heavily discounted games play 
+-- longer than full-price buyers?
+
+-- WITH UserPurchaseBehavior AS (
+--     SELECT 
+--         r.user_id, 
+--         CASE 
+--             WHEN MAX(g.discount) >= 50.0 
+--             THEN 'Discount Hunter' 
+--             ELSE 'Full Price Buyer' 
+--         END as buyer_type
+--     FROM fact_recommendations r 
+--     JOIN dim_games g 
+--         ON r.game_id = g.game_id
+--     GROUP BY r.user_id
+-- )
+-- SELECT 
+--     b.buyer_type, 
+--     COUNT(DISTINCT r.user_id) as total_users, 
+--     ROUND(AVG(r.hours_played), 2) as avg_playtime,
+--     ROUND(
+--         AVG(
+--             CASE WHEN r.sentiment = 'Positive' 
+--             THEN 1.0 ELSE 0.0 END
+--         ), 
+--     4) as pos_ratio
+-- FROM fact_recommendations r 
+-- JOIN UserPurchaseBehavior b 
+--     ON r.user_id = b.user_id
+-- GROUP BY b.buyer_type;
+
+
+-- 8. The "Sleeper Hit" Curve 
+-- Identify games where the total reviews in Year 2 was 
+-- double the reviews in Year 1.
+
+-- WITH YearOne AS (
+--     SELECT 
+--         r.game_id, 
+--         COUNT(*) as y1_reviews
+--     FROM fact_recommendations r 
+--     JOIN dim_games g 
+--         ON r.game_id = g.game_id
+--     WHERE DATEDIFF(day, g.date_release, r.review_date) 
+--         BETWEEN 0 AND 365 
+--     GROUP BY r.game_id
+-- ),
+-- YearTwo AS (
+--     SELECT 
+--         r.game_id, 
+--         COUNT(*) as y2_reviews
+--     FROM fact_recommendations r 
+--     JOIN dim_games g 
+--         ON r.game_id = g.game_id
+--     WHERE DATEDIFF(day, g.date_release, r.review_date) 
+--         BETWEEN 366 AND 730 
+--     GROUP BY r.game_id
+-- )
+-- SELECT TOP 20 
+--     g.title, 
+--     y1.y1_reviews, 
+--     y2.y2_reviews, 
+--     ROUND(y2.y2_reviews * 1.0 / y1.y1_reviews, 2) as growth
+-- FROM dim_games g 
+-- JOIN YearOne y1 
+--     ON g.game_id = y1.game_id 
+-- JOIN YearTwo y2 
+--     ON g.game_id = y2.game_id
+-- WHERE y1.y1_reviews > 50 
+--   AND y2.y2_reviews > (y1.y1_reviews * 2) 
+-- ORDER BY growth DESC;
+
+
+-- 9. The "Reviewer Fatigue" Lifecycle
+-- For Hardcore Reviewers (10+ reviews), does sentiment drop 
+-- from their first 3 to last 3 reviews?
+
+-- WITH HardcoreUsers AS (
+--     SELECT 
+--         user_id, 
+--         COUNT(*) as total_recs 
+--     FROM fact_recommendations 
+--     GROUP BY user_id 
+--     HAVING COUNT(*) >= 10
+-- ),
+-- Sequenced AS (
+--     SELECT 
+--         r.user_id, 
+--         r.sentiment,
+--         ROW_NUMBER() OVER(
+--             PARTITION BY r.user_id 
+--             ORDER BY r.review_date ASC
+--         ) as seq_asc,
+--         ROW_NUMBER() OVER(
+--             PARTITION BY r.user_id 
+--             ORDER BY r.review_date DESC
+--         ) as seq_desc
+--     FROM fact_recommendations r 
+--     JOIN HardcoreUsers h 
+--         ON r.user_id = h.user_id
+-- )
+-- SELECT 
+--     ROUND(
+--         (SELECT AVG(
+--             CASE WHEN sentiment = 'Positive' 
+--             THEN 1.0 ELSE 0.0 END) 
+--          FROM Sequenced 
+--          WHERE seq_asc <= 3), 
+--     4) as first_3_pos_ratio,
+--     ROUND(
+--         (SELECT AVG(
+--             CASE WHEN sentiment = 'Positive' 
+--             THEN 1.0 ELSE 0.0 END) 
+--          FROM Sequenced 
+--          WHERE seq_desc <= 3), 
+--     4) as last_3_pos_ratio;
+
+
+-- 10. The "Lockdown Phenomenon"
+-- Which games became viral hits during the peak of the 
+-- pandemic (March 2020 – Dec 2021) with an 85%+ positive ratio?
+
+-- SELECT TOP 25 
+--     g.title, 
+--     COUNT(r.review_id) as lockdown_reviews,
+--     ROUND(
+--         AVG(
+--             CASE WHEN r.sentiment = 'Positive' 
+--             THEN 1.0 ELSE 0.0 END
+--         ), 
+--     4) as pos_ratio
+-- FROM fact_recommendations r 
+-- JOIN dim_games g 
+--     ON r.game_id = g.game_id
+-- WHERE r.review_date BETWEEN '2020-03-01' AND '2021-12-31'
+-- GROUP BY g.title 
+-- HAVING COUNT(r.review_id) > 1000 
+--    AND AVG(
+--         CASE WHEN r.sentiment = 'Positive' 
+--         THEN 1.0 ELSE 0.0 END
+--    ) > 0.85
+-- ORDER BY lockdown_reviews DESC;
