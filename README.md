@@ -8,9 +8,9 @@ A complete, end-to-end Data Engineering and Analytics project that extracts, tra
 
 This project was built to handle, clean, and analyze a massive dataset of over 41 million Steam user reviews and 50,000+ games. Because processing this much data locally can crash a standard machine, we engineered a highly optimized pipeline. 
 
-### 💡 Core Engineering Concepts
+### Core Engineering Concepts
 * **Memory Optimization (Chunking):** Instead of loading a 41-million-row CSV into RAM all at once, our Python orchestrator streams the data in chunks of 200,000 rows. It processes the chunk, pushes it to SQL, dumps the memory, and grabs the next one.
-* **Representative Sampling:** We applied a deterministic `15%` random sample to the massive recommendations file, shrinking it down to a highly efficient `~5.5 million` rows for local Docker processing without losing the statistical integrity of the data.
+* **Representative Sampling:** We applied a deterministic `15%` random sample to the massive recommendations file, shrinking it down to a highly efficient `~5.5 million` rows for local processing without losing the statistical integrity of the data.
 * **The Snowflake Schema:** We designed a fully normalized relational database architecture. We use a central Fact table for transactions (reviews), surrounding Dimension tables (games, users, tags), and a Many-to-Many Bridge table to connect games to their multiple genres/tags.
 * **JSON Parsing:** Handled messy `JSON Lines` metadata formats by unpacking arrays and mapping them properly to our SQL bridge tables.
 
@@ -30,16 +30,41 @@ Using advanced SQL features like Window Functions (`ROW_NUMBER`, `NTILE`, `RANK`
 
 ---
 
-## 🛠️ Part 2: How to Install & Run Locally
+## Part 2: How to Install & Run Locally
 
-Follow these steps. 
+Follow these steps to spin this project up on your own local machine.
 
 ### Prerequisites
-* **Docker Desktop** installed and running.
 * **Python 3.9+** installed.
 * **Git** installed.
+* **MS SQL Server** running locally (either via Docker or natively).
 
 ### Step 1: Clone the Repository
-```bash
-git clone [https://github.com/YourOrganizationName/sql_project.git](https://github.com/YourOrganizationName/sql_project.git)
-cd sql_project
+Open your terminal and pull down the project:
+
+    git clone https://github.com/YourOrganizationName/sql_project.git
+    cd sql_project
+
+### Step 2: Configure Your Database Settings !
+Before running anything, you must update the connection credentials to match your own machine! Open the `load.py` file and change these variables:
+
+    DB_USER = 'Your_SQL_Username'
+    DB_PASSWORD = 'Your_Actual_Password'
+    DB_HOST = 'localhost'
+    DB_PORT = '1433'
+    DB_NAME = 'SteamAnalytics'
+
+### Step 3: Install Dependencies & Build Schema
+Install the required libraries to run the ETL pipeline:
+
+    pip install pandas sqlalchemy pymssql
+
+Next, open your SQL client, connect to your server, and run the `sql/schema.sql` file to create the empty database tables.
+
+### Step 4: Run the ETL Pipeline
+Fire off the main orchestrator script. This will extract the data, clean it, and stream all 5.5 million rows straight into your database:
+
+    python app_python/main.py
+
+### Step 5: Run the Analytics
+Once the terminal says "PIPELINE COMPLETE", open `sql/queries.sql`. You can execute the entire file to view the answers to all 10 analytical questions!
