@@ -14,7 +14,7 @@ This project was built to handle, clean, and analyze a massive dataset of over 4
 * **The Snowflake Schema:** We designed a fully normalized relational database architecture. We use a central Fact table for transactions (reviews), surrounding Dimension tables (games, users, tags), and a Many-to-Many Bridge table to connect games to their multiple genres/tags.
 * **JSON Parsing:** Handled messy `JSON Lines` metadata formats by unpacking arrays and mapping them properly to our SQL bridge tables.
 
-### 📊 The 10 Analytical Questions We Answered
+###The 10 Analytical Questions We Answered
 Using advanced SQL features like Window Functions (`ROW_NUMBER`, `NTILE`, `RANK`), CTEs, and multi-table Joins, we built a `queries.sql` file that answers these core business questions:
 
 1. **The Tag Synergy Matrix:** Which combination of tags produces the highest ratio of positive reviews and playtime?
